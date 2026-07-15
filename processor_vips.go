@@ -1,5 +1,3 @@
-//go:build vips
-
 package caddyvips
 
 import (
@@ -20,8 +18,6 @@ func newImageProcessor() imageProcessor {
 	})
 	return vipsImageProcessor{}
 }
-
-func imageProcessorAvailable() bool { return true }
 
 func (vipsImageProcessor) Transform(source []byte, spec imageSpec) ([]byte, string, error) {
 	image, err := vips.NewImageFromBuffer(source)

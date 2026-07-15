@@ -4,11 +4,10 @@ A Caddy HTTP middleware for libvips-backed image resizing and derivative caching
 It transforms the response produced by the next handler, so it can be composed with
 `varc`, `file_server`, `reverse_proxy`, or another Caddy content handler.
 
-Build Caddy with the `vips` tag and this module:
+Build Caddy with this module; libvips support is always enabled:
 
 ```sh
-XCADDY_GO_BUILD_FLAGS="-tags 'vips'" \
-  xcaddy build \
+xcaddy build \
   --with github.com/tgdrive/caddy-vips \
   --with github.com/tgdrive/varc
 ```

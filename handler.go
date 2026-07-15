@@ -39,9 +39,6 @@ func (h *Handler) Provision(caddy.Context) error {
 }
 
 func (h *Handler) Validate() error {
-	if !imageProcessorAvailable() {
-		return fmt.Errorf("caddy-vips: build requires -tags=vips")
-	}
 	if h.Quality < 0 || h.Quality > 100 {
 		return fmt.Errorf("caddy-vips: quality must be between 1 and 100")
 	}

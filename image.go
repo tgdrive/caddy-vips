@@ -3,7 +3,6 @@ package caddyvips
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -257,9 +256,6 @@ func negotiateImageFormat(accept string) string {
 }
 
 func (h *Handler) serveImage(w http.ResponseWriter, r *http.Request, next caddyhttp.Handler, spec imageSpec) error {
-	if h.imageProcessor == nil {
-		return caddyhttp.Error(http.StatusNotImplemented, errors.New("caddy-vips: image support requires a build with -tags=vips"))
-	}
 
 	sourceRequest := h.sourceRequestWithoutImageQuery(r)
 	recorder := httptest.NewRecorder()
