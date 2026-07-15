@@ -3,6 +3,7 @@ package caddyvips
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -256,54 +257,42 @@ func negotiateImageFormat(accept string) string {
 }
 
 func (h *Handler) serveImage(w http.ResponseWriter, r *http.Request, next caddyhttp.Handler, spec imageSpec) error {
-
 	sourceRequest := h.sourceRequestWithoutImageQuery(r)
-	recorder := httptest.NewRecorder()
-	if err := next.ServeHTTP(recorder, sourceRequest); err != nil {
-		return err
-	}
-	response := recorder.Result()
-	defer response.Body.Close()
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		copyHeader(w.Header(), response.Header)
-		w.WriteHeader(response.StatusCode)
-		_, err := io.Copy(w, response.Body)
-		return err
-	}
-
-	limit := h.MaxSourceBytes
-	if limit <= 0 {
-		limit = defaultImageMaxSourceBytes
-	}
-	if response.ContentLength > limit {
-		return caddyhttp.Error(http.StatusRequestEntityTooLarge, fmt.Errorf("caddy-vips: source size %d exceeds limit %d", response.ContentLength, limit))
-	}
-	source, err := io.ReadAll(io.LimitReader(response.Body, limit+1))
-	if err != nil {
-		return caddyhttp.Error(http.StatusBadGateway, fmt.Errorf("caddy-vips: read source: %w", err))
-	}
-	if int64(len(source)) > limit {
-		return caddyhttp.Error(http.StatusRequestEntityTooLarge, fmt.Errorf("caddy-vips: source exceeds limit %d", limit))
-	}
-
-	fingerprint := response.Header.Get("ETag")
-	if fingerprint == "" {
-		fingerprint = response.Header.Get("Last-Modified")
-	}
-	if fingerprint == "" {
-		sum := sha256.Sum256(source)
-		fingerprint = hex.EncodeToString(sum[:])
-	}
-	sourceKey := sourceRequest.URL.RequestURI()
-	cacheBase := h.imageCachePath(sourceKey, fingerprint, spec)
-	if result, ok := readCachedImage(cacheBase); ok {
+	cacheBase := h.imageCachePath(sourceRequest.URL.RequestURI(), spec)
+	if result, ok := h.readCachedImage(cacheBase); ok {
 		return h.writeImage(w, r, result, "HIT", spec.Negotiated)
 	}
 
 	value, err, shared := h.flights.Do("image:"+cacheBase, func() (any, error) {
-		if result, ok := readCachedImage(cacheBase); ok {
+		if result, ok := h.readCachedImage(cacheBase); ok {
 			return result, nil
 		}
+
+		recorder := httptest.NewRecorder()
+		if err := next.ServeHTTP(recorder, sourceRequest); err != nil {
+			return nil, err
+		}
+		response := recorder.Result()
+		defer response.Body.Close()
+		if response.StatusCode < 200 || response.StatusCode >= 300 {
+			return nil, &sourceResponseError{response: response}
+		}
+
+		limit := h.MaxSourceBytes
+		if limit <= 0 {
+			limit = defaultImageMaxSourceBytes
+		}
+		if response.ContentLength > limit {
+			return nil, caddyhttp.Error(http.StatusRequestEntityTooLarge, fmt.Errorf("caddy-vips: source size %d exceeds limit %d", response.ContentLength, limit))
+		}
+		source, readErr := io.ReadAll(io.LimitReader(response.Body, limit+1))
+		if readErr != nil {
+			return nil, caddyhttp.Error(http.StatusBadGateway, fmt.Errorf("caddy-vips: read source: %w", readErr))
+		}
+		if int64(len(source)) > limit {
+			return nil, caddyhttp.Error(http.StatusRequestEntityTooLarge, fmt.Errorf("caddy-vips: source exceeds limit %d", limit))
+		}
+
 		output, contentType, transformErr := h.imageProcessor.Transform(source, spec)
 		if transformErr != nil {
 			return nil, transformErr
@@ -312,6 +301,9 @@ func (h *Handler) serveImage(w http.ResponseWriter, r *http.Request, next caddyh
 		if writeErr := writeFileAtomic(path, output); writeErr != nil {
 			return nil, fmt.Errorf("caddy-vips: cache write: %w", writeErr)
 		}
+		if pruneErr := h.pruneImageCache(path); pruneErr != nil {
+			return nil, fmt.Errorf("caddy-vips: cache prune: %w", pruneErr)
+		}
 		info, statErr := os.Stat(path)
 		if statErr != nil {
 			return nil, statErr
@@ -319,6 +311,13 @@ func (h *Handler) serveImage(w http.ResponseWriter, r *http.Request, next caddyh
 		return cachedImage{Path: path, ContentType: contentType, Size: info.Size(), ModTime: info.ModTime(), ETag: imageETag(cacheBase)}, nil
 	})
 	if err != nil {
+		var sourceErr *sourceResponseError
+		if errors.As(err, &sourceErr) {
+			copyHeader(w.Header(), sourceErr.response.Header)
+			w.WriteHeader(sourceErr.response.StatusCode)
+			_, copyErr := io.Copy(w, sourceErr.response.Body)
+			return copyErr
+		}
 		return caddyhttp.Error(http.StatusBadGateway, err)
 	}
 	result := value.(cachedImage)
@@ -327,6 +326,14 @@ func (h *Handler) serveImage(w http.ResponseWriter, r *http.Request, next caddyh
 		status = "HIT"
 	}
 	return h.writeImage(w, r, result, status, spec.Negotiated)
+}
+
+type sourceResponseError struct {
+	response *http.Response
+}
+
+func (e *sourceResponseError) Error() string {
+	return fmt.Sprintf("caddy-vips: source returned %s", e.response.Status)
 }
 
 type cachedImage struct {
@@ -383,12 +390,12 @@ func (h *Handler) sourceRequestWithoutImageQuery(r *http.Request) *http.Request 
 	return clone
 }
 
-func (h *Handler) imageCachePath(sourceKey, fingerprint string, spec imageSpec) string {
+func (h *Handler) imageCachePath(sourceKey string, spec imageSpec) string {
 	dir := h.CacheDir
 	if dir == "" {
 		dir = defaultCacheDir
 	}
-	sum := sha256.Sum256([]byte(sourceKey + "\x00" + fingerprint + "\x00" + spec.canonical()))
+	sum := sha256.Sum256([]byte(sourceKey + "\x00" + spec.canonical()))
 	hexsum := hex.EncodeToString(sum[:])
 	return filepath.Join(dir, hexsum[:2], hexsum[2:4], hexsum)
 }
@@ -411,11 +418,13 @@ func replaceImageExtension(path, contentType string) string {
 	return path + ext
 }
 
-func readCachedImage(base string) (cachedImage, bool) {
+func (h *Handler) readCachedImage(base string) (cachedImage, bool) {
 	for _, ext := range []string{".jpg", ".png", ".webp"} {
 		path := base + ext
 		info, err := os.Stat(path)
 		if err == nil && info.Mode().IsRegular() {
+			now := time.Now()
+			_ = os.Chtimes(path, now, now)
 			return cachedImage{Path: path, ContentType: contentTypeFromExtension(path), Size: info.Size(), ModTime: info.ModTime(), ETag: imageETag(base)}, true
 		}
 	}

@@ -59,6 +59,15 @@ func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 					return err
 				}
 				h.MaxSourceBytes = v
+			case "cache_max_size", "max_cache_size":
+				if !d.NextArg() {
+					return d.ArgErr()
+				}
+				v, err := parseBytes(d.Val())
+				if err != nil {
+					return err
+				}
+				h.MaxCacheBytes = v
 			case "debug_headers":
 				if !d.NextArg() {
 					return d.ArgErr()

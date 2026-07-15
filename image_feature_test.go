@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 )
 
 func TestImageRequestNegotiatesWebP(t *testing.T) {
@@ -33,14 +35,14 @@ func TestImageRequestRejectsConflictingAliases(t *testing.T) {
 	}
 }
 
-func TestImageCachePathDependsOnSourceFingerprint(t *testing.T) {
+func TestImageCachePathDependsOnImmutableSourceIdentity(t *testing.T) {
 	h := &Handler{CacheDir: t.TempDir()}
 	spec := imageSpec{Width: 320, Height: 180, Fit: "cover", Gravity: "center", Quality: 82, Format: "webp", DPR: 1, WithoutEnlargement: true, Background: "ffffff"}
 
-	first := h.imageCachePath("source", "etag-a", spec)
-	second := h.imageCachePath("source", "etag-b", spec)
+	first := h.imageCachePath("/images/id-1", spec)
+	second := h.imageCachePath("/images/id-2", spec)
 	if first == second {
-		t.Fatal("changed source fingerprint reused derivative cache path")
+		t.Fatal("different immutable source identities reused derivative cache path")
 	}
 }
 
@@ -69,5 +71,35 @@ func TestWriteImageConditionalETag(t *testing.T) {
 	}
 	if w.Header().Get("Vary") != "Accept" {
 		t.Fatalf("expected Vary: Accept, got %q", w.Header().Get("Vary"))
+	}
+}
+
+func TestServeImageCacheHitSkipsDownstream(t *testing.T) {
+	h := &Handler{CacheDir: t.TempDir(), DebugHeaders: true}
+	spec := imageSpec{Width: 320, Height: 180, Fit: "cover", Gravity: "center", Quality: 82, Format: "webp", DPR: 1, WithoutEnlargement: true, Background: "ffffff"}
+	r := httptest.NewRequest(http.MethodGet, "http://example.test/images/id-1?w=320&h=180&format=webp", nil)
+	cacheBase := h.imageCachePath("/images/id-1", spec)
+	path := replaceImageExtension(cacheBase, "image/webp")
+	if err := writeFileAtomic(path, []byte("cached derivative")); err != nil {
+		t.Fatal(err)
+	}
+
+	calls := 0
+	next := caddyhttp.HandlerFunc(func(http.ResponseWriter, *http.Request) error {
+		calls++
+		return nil
+	})
+	w := httptest.NewRecorder()
+	if err := h.serveImage(w, r, next, spec); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 0 {
+		t.Fatalf("downstream calls=%d, want 0", calls)
+	}
+	if got := w.Header().Get("X-Caddy-Vips-Cache"); got != "HIT" {
+		t.Fatalf("cache header=%q, want HIT", got)
+	}
+	if got := w.Body.String(); got != "cached derivative" {
+		t.Fatalf("body=%q", got)
 	}
 }

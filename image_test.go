@@ -47,8 +47,8 @@ func TestSourceRequestWithoutImageQuery(t *testing.T) {
 
 func TestImageCachePathDependsOnTransform(t *testing.T) {
 	h := &Handler{CacheDir: t.TempDir()}
-	first := h.imageCachePath("source", "etag-a", imageSpec{Width: 100, Height: 100, Fit: "cover", Gravity: "center", Quality: 80, Format: "webp", DPR: 1, WithoutEnlargement: true, Background: "ffffff"})
-	second := h.imageCachePath("source", "etag-a", imageSpec{Width: 200, Height: 100, Fit: "cover", Gravity: "center", Quality: 80, Format: "webp", DPR: 1, WithoutEnlargement: true, Background: "ffffff"})
+	first := h.imageCachePath("source", imageSpec{Width: 100, Height: 100, Fit: "cover", Gravity: "center", Quality: 80, Format: "webp", DPR: 1, WithoutEnlargement: true, Background: "ffffff"})
+	second := h.imageCachePath("source", imageSpec{Width: 200, Height: 100, Fit: "cover", Gravity: "center", Quality: 80, Format: "webp", DPR: 1, WithoutEnlargement: true, Background: "ffffff"})
 	if first == second {
 		t.Fatal("different transforms produced the same cache path")
 	}

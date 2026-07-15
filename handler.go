@@ -4,6 +4,7 @@ package caddyvips
 import (
 	"fmt"
 	"net/http"
+	"sync"
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
@@ -20,10 +21,12 @@ type Handler struct {
 	MaxDimension   int    `json:"max_dimension,omitempty"`
 	MaxPixels      int64  `json:"max_pixels,omitempty"`
 	MaxSourceBytes int64  `json:"max_source_bytes,omitempty"`
+	MaxCacheBytes  int64  `json:"max_cache_bytes,omitempty"`
 	DebugHeaders   bool   `json:"debug_headers,omitempty"`
 
 	imageProcessor imageProcessor
 	flights        singleflight.Group
+	cacheMu        sync.Mutex
 }
 
 func (Handler) CaddyModule() caddy.ModuleInfo {
@@ -42,7 +45,7 @@ func (h *Handler) Validate() error {
 	if h.Quality < 0 || h.Quality > 100 {
 		return fmt.Errorf("caddy-vips: quality must be between 1 and 100")
 	}
-	if h.MaxDimension < 0 || h.MaxPixels < 0 || h.MaxSourceBytes < 0 {
+	if h.MaxDimension < 0 || h.MaxPixels < 0 || h.MaxSourceBytes < 0 || h.MaxCacheBytes < 0 {
 		return fmt.Errorf("caddy-vips: limits cannot be negative")
 	}
 	return nil
