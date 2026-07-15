@@ -25,6 +25,7 @@ Example:
             max_pixels 40000000
             max_source_size 64MiB
             debug_headers off
+            enable_logs off
         }
 
         varc https://origin.example.com {
@@ -33,6 +34,9 @@ Example:
     }
 }
 ```
+
+`enable_logs` controls libvips and go-vips log output. It is disabled by default;
+set it to `on` only when troubleshooting.
 
 Supported query parameters include `w`, `h`, `fit`, `gravity`, `q`, `format`,
 `dpr`, `rotate`, `flip`, `without_enlargement`, and `background`.

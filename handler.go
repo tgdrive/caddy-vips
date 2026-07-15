@@ -23,6 +23,7 @@ type Handler struct {
 	MaxSourceBytes int64  `json:"max_source_bytes,omitempty"`
 	MaxCacheBytes  int64  `json:"max_cache_bytes,omitempty"`
 	DebugHeaders   bool   `json:"debug_headers,omitempty"`
+	EnableLogs     bool   `json:"enable_logs,omitempty"`
 
 	imageProcessor imageProcessor
 	flights        singleflight.Group
@@ -37,7 +38,7 @@ func (h *Handler) Provision(caddy.Context) error {
 	if h.CacheDir == "" {
 		h.CacheDir = defaultCacheDir
 	}
-	h.imageProcessor = newImageProcessor()
+	h.imageProcessor = newImageProcessor(h.EnableLogs)
 	return nil
 }
 

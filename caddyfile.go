@@ -77,6 +77,15 @@ func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 					return err
 				}
 				h.DebugHeaders = v
+			case "enable_logs":
+				if !d.NextArg() {
+					return d.ArgErr()
+				}
+				v, err := strconv.ParseBool(d.Val())
+				if err != nil {
+					return err
+				}
+				h.EnableLogs = v
 			default:
 				return d.Errf("unknown vips option %q", d.Val())
 			}

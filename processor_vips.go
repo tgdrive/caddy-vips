@@ -12,8 +12,13 @@ var vipsStartup sync.Once
 
 type vipsImageProcessor struct{}
 
-func newImageProcessor() imageProcessor {
+func newImageProcessor(enableLogs bool) imageProcessor {
 	vipsStartup.Do(func() {
+		if enableLogs {
+			vips.LoggingSettings(nil, vips.LogLevelInfo)
+		} else {
+			vips.LoggingSettings(func(string, vips.LogLevel, string) {}, vips.LogLevelDebug)
+		}
 		vips.Startup(nil)
 	})
 	return vipsImageProcessor{}
